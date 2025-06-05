@@ -108,3 +108,36 @@ dmypy.json
  
 # Pyre type checker 
 .pyre/ 
+
+# 資料集與大型檔案
+/data/
+*.tar.bz2
+*.zip
+*.csv
+*.json
+*.parquet
+*.feather
+*.h5
+*.xlsx
+*.sav
+*.pkl
+*.npz
+*.npy
+
+# Jupyter notebook checkpoint
+.ipynb_checkpoints/
+
+# Python/venv/conda 虛擬環境
+venv/
+.env
+.env.*
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# VSCode/IDE 設定
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
