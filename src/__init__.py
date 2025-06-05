@@ -1,4 +1,4 @@
- """
+"""
 StudentLife Analysis Package
 
 This package provides tools for analyzing the StudentLife dataset to understand

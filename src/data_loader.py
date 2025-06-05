@@ -8,8 +8,9 @@ from pathlib import Path
 from typing import Dict, List, Optional, Union
 from datetime import datetime, timedelta
 import logging
+from tqdm import tqdm
 
-from ..config import DATA_ROOT
+from config import DATA_ROOT
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -125,12 +126,18 @@ class StudentLifeLoader:
             logger.warning(f"No csv files in {sensor_dir}")
             return pd.DataFrame()
         df_list = []
-        for f in all_csv:
-            df = pd.read_csv(f)
-            # 自動加上 user_id 欄位（從檔名推斷）
-            user_id = f.stem.split('_')[-1]
-            df['user_id'] = user_id
-            df_list.append(df)
+        for f in tqdm(all_csv, desc=f"Loading {sensor_type}"):
+            try:
+                df = pd.read_csv(f)
+                # 自動加上 user_id 欄位（從檔名推斷）
+                user_id = f.stem.split('_')[-1]
+                df['user_id'] = user_id
+                df_list.append(df)
+            except Exception as e:
+                logger.warning(f"Failed to read {f}: {e}")
+        if not df_list:
+            logger.warning(f"No valid csv files loaded in {sensor_dir}")
+            return pd.DataFrame()
         return pd.concat(df_list, ignore_index=True)
     
     def load_activity_data(self) -> pd.DataFrame:

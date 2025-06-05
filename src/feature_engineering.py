@@ -6,7 +6,8 @@ import numpy as np
 from typing import Dict, List, Optional, Union
 from datetime import datetime, timedelta
 import logging
-from .config import FEATURE_PARAMS
+from config import FEATURE_PARAMS
+from src.data_loader import StudentLifeLoader
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -28,7 +29,11 @@ class FeatureEngineer:
         if sleep_df.empty:
             logger.warning("Sleep data is empty.")
             return pd.DataFrame()
-        # 假設 sleep_df 有 user_id, sleep_duration, time_in_bed, is_weekend
+        required_cols = ['user_id', 'sleep_duration', 'time_in_bed', 'is_weekend']
+        missing_cols = [col for col in required_cols if col not in sleep_df.columns]
+        if missing_cols:
+            logger.warning(f"Sleep data missing columns: {missing_cols}. Columns: {sleep_df.columns.tolist()}")
+            return pd.DataFrame()
         features = sleep_df.groupby('user_id').agg(
             avg_sleep_duration = ('sleep_duration', 'mean'),
             sleep_regularity = ('sleep_duration', lambda x: x.std()/x.mean() if x.mean() else np.nan),
@@ -41,12 +46,24 @@ class FeatureEngineer:
         if phonelock_df.empty:
             logger.warning("Phonelock data is empty.")
             return pd.DataFrame()
-        # 假設 phonelock_df 有 user_id, timestamp, event_type
-        # 需先轉換 timestamp 為日期與時段
-        phonelock_df['datetime'] = pd.to_datetime(phonelock_df['timestamp'], errors='coerce')
+        # 自動偵測時間欄位
+        time_col = None
+        for col in ['timestamp', 'time', 'datetime', 'start', 'end']:
+            if col in phonelock_df.columns:
+                time_col = col
+                break
+        if time_col is None:
+            logger.warning(f"Phonelock data has no time column (tried: timestamp, time, datetime, start, end). Columns: {phonelock_df.columns.tolist()}")
+            return pd.DataFrame()
+        phonelock_df['datetime'] = pd.to_datetime(phonelock_df[time_col], errors='coerce')
         phonelock_df['date'] = phonelock_df['datetime'].dt.date
         phonelock_df['hour'] = phonelock_df['datetime'].dt.hour
-        unlocks = phonelock_df[phonelock_df['event_type'] == 'unlock']
+        # event_type 欄位容錯
+        event_col = 'event_type' if 'event_type' in phonelock_df.columns else None
+        if event_col is None:
+            logger.warning(f"Phonelock data has no event_type column. Columns: {phonelock_df.columns.tolist()}")
+            return pd.DataFrame()
+        unlocks = phonelock_df[phonelock_df[event_col] == 'unlock']
         features = unlocks.groupby('user_id').agg(
             daily_unlocks = ('date', 'nunique'),
             night_unlocks = ('hour', lambda x: ((x >= 22) | (x < 6)).sum())
@@ -57,9 +74,11 @@ class FeatureEngineer:
         if activity_df.empty:
             logger.warning("Activity data is empty.")
             return pd.DataFrame()
-        # 假設 activity_df 有 user_id, steps, timestamp, gps_radius, is_outside
-        activity_df['datetime'] = pd.to_datetime(activity_df['timestamp'], errors='coerce')
-        activity_df['date'] = activity_df['datetime'].dt.date
+        required_cols = ['steps', 'gps_radius', 'is_outside', 'user_id']
+        missing_cols = [col for col in required_cols if col not in activity_df.columns]
+        if missing_cols:
+            logger.warning(f"Activity data missing columns: {missing_cols}. Columns: {activity_df.columns.tolist()}")
+            return pd.DataFrame()
         features = activity_df.groupby('user_id').agg(
             avg_daily_steps = ('steps', 'mean'),
             activity_range = ('gps_radius', 'mean'),
@@ -128,7 +147,11 @@ class FeatureEngineer:
         if audio_df.empty:
             logger.warning("Audio data is empty.")
             return pd.DataFrame()
-        # 假設 audio_df 有 user_id, conversation_duration, noise_level
+        required_cols = ['conversation_duration', 'noise_level', 'user_id']
+        missing_cols = [col for col in required_cols if col not in audio_df.columns]
+        if missing_cols:
+            logger.warning(f"Audio data missing columns: {missing_cols}. Columns: {audio_df.columns.tolist()}")
+            return pd.DataFrame()
         features = audio_df.groupby('user_id').agg(
             avg_conversation_time = ('conversation_duration', 'mean'),
             avg_noise_level = ('noise_level', 'mean')
@@ -139,7 +162,11 @@ class FeatureEngineer:
         if conv_df.empty:
             logger.warning("Conversation data is empty.")
             return pd.DataFrame()
-        # 假設 conv_df 有 user_id, duration
+        required_cols = ['duration', 'user_id']
+        missing_cols = [col for col in required_cols if col not in conv_df.columns]
+        if missing_cols:
+            logger.warning(f"Conversation data missing columns: {missing_cols}. Columns: {conv_df.columns.tolist()}")
+            return pd.DataFrame()
         features = conv_df.groupby('user_id').agg(
             total_conversation_time = ('duration', 'sum'),
             avg_conversation_time = ('duration', 'mean')
@@ -150,7 +177,11 @@ class FeatureEngineer:
         if ema_mood_df.empty:
             logger.warning("EMA Mood data is empty.")
             return pd.DataFrame()
-        # 假設 ema_mood_df 有 user_id, mood_score
+        required_cols = ['user_id', 'mood_score']
+        missing_cols = [col for col in required_cols if col not in ema_mood_df.columns]
+        if missing_cols:
+            logger.warning(f"EMA Mood data missing columns: {missing_cols}. Columns: {ema_mood_df.columns.tolist()}")
+            return pd.DataFrame()
         features = ema_mood_df.groupby('user_id').agg(
             avg_mood = ('mood_score', 'mean'),
             mood_variability = ('mood_score', 'std')
@@ -161,7 +192,11 @@ class FeatureEngineer:
         if ema_sleep_df.empty:
             logger.warning("EMA Sleep data is empty.")
             return pd.DataFrame()
-        # 假設 ema_sleep_df 有 user_id, sleep_quality
+        required_cols = ['user_id', 'sleep_quality']
+        missing_cols = [col for col in required_cols if col not in ema_sleep_df.columns]
+        if missing_cols:
+            logger.warning(f"EMA Sleep data missing columns: {missing_cols}. Columns: {ema_sleep_df.columns.tolist()}")
+            return pd.DataFrame()
         features = ema_sleep_df.groupby('user_id').agg(
             avg_sleep_quality = ('sleep_quality', 'mean')
         ).reset_index()
@@ -171,7 +206,11 @@ class FeatureEngineer:
         if bluetooth_df.empty:
             logger.warning("Bluetooth data is empty.")
             return pd.DataFrame()
-        # 假設 bluetooth_df 有 user_id, device_count
+        required_cols = ['user_id', 'device_count']
+        missing_cols = [col for col in required_cols if col not in bluetooth_df.columns]
+        if missing_cols:
+            logger.warning(f"Bluetooth data missing columns: {missing_cols}. Columns: {bluetooth_df.columns.tolist()}")
+            return pd.DataFrame()
         features = bluetooth_df.groupby('user_id').agg(
             avg_daily_contacts = ('device_count', 'mean')
         ).reset_index()
@@ -181,7 +220,11 @@ class FeatureEngineer:
         if wifi_df.empty:
             logger.warning("WiFi data is empty.")
             return pd.DataFrame()
-        # 假設 wifi_df 有 user_id, location_id
+        required_cols = ['user_id', 'location_id']
+        missing_cols = [col for col in required_cols if col not in wifi_df.columns]
+        if missing_cols:
+            logger.warning(f"WiFi data missing columns: {missing_cols}. Columns: {wifi_df.columns.tolist()}")
+            return pd.DataFrame()
         features = wifi_df.groupby('user_id').agg(
             unique_locations = ('location_id', 'nunique')
         ).reset_index()
@@ -191,7 +234,11 @@ class FeatureEngineer:
         if phonecharge_df.empty:
             logger.warning("Phonecharge data is empty.")
             return pd.DataFrame()
-        # 假設 phonecharge_df 有 user_id, timestamp, is_charging
+        required_cols = ['user_id', 'timestamp']
+        missing_cols = [col for col in required_cols if col not in phonecharge_df.columns]
+        if missing_cols:
+            logger.warning(f"Phonecharge data missing columns: {missing_cols}. Columns: {phonecharge_df.columns.tolist()}")
+            return pd.DataFrame()
         phonecharge_df['datetime'] = pd.to_datetime(phonecharge_df['timestamp'], errors='coerce')
         phonecharge_df['hour'] = phonecharge_df['datetime'].dt.hour
         features = phonecharge_df.groupby('user_id').agg(
@@ -203,7 +250,11 @@ class FeatureEngineer:
         if dark_df.empty:
             logger.warning("Dark data is empty.")
             return pd.DataFrame()
-        # 假設 dark_df 有 user_id, dark_duration
+        required_cols = ['user_id', 'dark_duration']
+        missing_cols = [col for col in required_cols if col not in dark_df.columns]
+        if missing_cols:
+            logger.warning(f"Dark data missing columns: {missing_cols}. Columns: {dark_df.columns.tolist()}")
+            return pd.DataFrame()
         features = dark_df.groupby('user_id').agg(
             avg_night_dark_duration = ('dark_duration', 'mean')
         ).reset_index()
@@ -213,7 +264,11 @@ class FeatureEngineer:
         if app_usage_df.empty:
             logger.warning("App usage data is empty.")
             return pd.DataFrame()
-        # 假設 app_usage_df 有 user_id, app_category, usage_time
+        required_cols = ['user_id', 'app_category', 'usage_time']
+        missing_cols = [col for col in required_cols if col not in app_usage_df.columns]
+        if missing_cols:
+            logger.warning(f"App usage data missing columns: {missing_cols}. Columns: {app_usage_df.columns.tolist()}")
+            return pd.DataFrame()
         features = app_usage_df.groupby(['user_id', 'app_category']).agg(
             total_usage = ('usage_time', 'sum')
         ).unstack(fill_value=0).reset_index()
@@ -223,7 +278,11 @@ class FeatureEngineer:
         if dinning_df.empty:
             logger.warning("Dinning data is empty.")
             return pd.DataFrame()
-        # 假設 dinning_df 有 user_id, meal_time
+        required_cols = ['user_id', 'meal_time']
+        missing_cols = [col for col in required_cols if col not in dinning_df.columns]
+        if missing_cols:
+            logger.warning(f"Dinning data missing columns: {missing_cols}. Columns: {dinning_df.columns.tolist()}")
+            return pd.DataFrame()
         dinning_df['datetime'] = pd.to_datetime(dinning_df['meal_time'], errors='coerce')
         dinning_df['date'] = dinning_df['datetime'].dt.date
         features = dinning_df.groupby('user_id').agg(
@@ -235,7 +294,11 @@ class FeatureEngineer:
         if panas_df.empty:
             logger.warning("PANAS data is empty.")
             return pd.DataFrame()
-        # 假設 panas_df 有 user_id, positive, negative
+        required_cols = ['user_id', 'positive', 'negative']
+        missing_cols = [col for col in required_cols if col not in panas_df.columns]
+        if missing_cols:
+            logger.warning(f"PANAS data missing columns: {missing_cols}. Columns: {panas_df.columns.tolist()}")
+            return pd.DataFrame()
         features = panas_df.groupby('user_id').agg(
             avg_positive = ('positive', 'mean'),
             avg_negative = ('negative', 'mean')
@@ -246,7 +309,11 @@ class FeatureEngineer:
         if psqi_df.empty:
             logger.warning("PSQI data is empty.")
             return pd.DataFrame()
-        # 假設 psqi_df 有 user_id, psqi_score
+        required_cols = ['user_id', 'psqi_score']
+        missing_cols = [col for col in required_cols if col not in psqi_df.columns]
+        if missing_cols:
+            logger.warning(f"PSQI data missing columns: {missing_cols}. Columns: {psqi_df.columns.tolist()}")
+            return pd.DataFrame()
         features = psqi_df.groupby('user_id').agg(
             avg_psqi = ('psqi_score', 'mean')
         ).reset_index()
@@ -256,7 +323,11 @@ class FeatureEngineer:
         if bigfive_df.empty:
             logger.warning("BigFive data is empty.")
             return pd.DataFrame()
-        # 假設 bigfive_df 有 user_id, openness, conscientiousness, extraversion, agreeableness, neuroticism
+        required_cols = ['user_id', 'openness', 'conscientiousness', 'extraversion', 'agreeableness', 'neuroticism']
+        missing_cols = [col for col in required_cols if col not in bigfive_df.columns]
+        if missing_cols:
+            logger.warning(f"BigFive data missing columns: {missing_cols}. Columns: {bigfive_df.columns.tolist()}")
+            return pd.DataFrame()
         features = bigfive_df.groupby('user_id').agg(
             openness = ('openness', 'mean'),
             conscientiousness = ('conscientiousness', 'mean'),
@@ -270,7 +341,11 @@ class FeatureEngineer:
         if flourishing_df.empty:
             logger.warning("Flourishing data is empty.")
             return pd.DataFrame()
-        # 假設 flourishing_df 有 user_id, flourishing_score
+        required_cols = ['user_id', 'flourishing_score']
+        missing_cols = [col for col in required_cols if col not in flourishing_df.columns]
+        if missing_cols:
+            logger.warning(f"Flourishing data missing columns: {missing_cols}. Columns: {flourishing_df.columns.tolist()}")
+            return pd.DataFrame()
         features = flourishing_df.groupby('user_id').agg(
             avg_flourishing = ('flourishing_score', 'mean')
         ).reset_index()
@@ -280,7 +355,11 @@ class FeatureEngineer:
         if loneliness_df.empty:
             logger.warning("Loneliness data is empty.")
             return pd.DataFrame()
-        # 假設 loneliness_df 有 user_id, loneliness_score
+        required_cols = ['user_id', 'loneliness_score']
+        missing_cols = [col for col in required_cols if col not in loneliness_df.columns]
+        if missing_cols:
+            logger.warning(f"Loneliness data missing columns: {missing_cols}. Columns: {loneliness_df.columns.tolist()}")
+            return pd.DataFrame()
         features = loneliness_df.groupby('user_id').agg(
             avg_loneliness = ('loneliness_score', 'mean')
         ).reset_index()
@@ -290,7 +369,11 @@ class FeatureEngineer:
         if vr12_df.empty:
             logger.warning("VR-12 data is empty.")
             return pd.DataFrame()
-        # 假設 vr12_df 有 user_id, vr12_score
+        required_cols = ['user_id', 'vr12_score']
+        missing_cols = [col for col in required_cols if col not in vr12_df.columns]
+        if missing_cols:
+            logger.warning(f"VR-12 data missing columns: {missing_cols}. Columns: {vr12_df.columns.tolist()}")
+            return pd.DataFrame()
         features = vr12_df.groupby('user_id').agg(
             avg_vr12 = ('vr12_score', 'mean')
         ).reset_index()
@@ -300,7 +383,11 @@ class FeatureEngineer:
         if ema_activity_df.empty:
             logger.warning("EMA Activity data is empty.")
             return pd.DataFrame()
-        # 假設 ema_activity_df 有 user_id, activity_score
+        required_cols = ['user_id', 'activity_score']
+        missing_cols = [col for col in required_cols if col not in ema_activity_df.columns]
+        if missing_cols:
+            logger.warning(f"EMA Activity data missing columns: {missing_cols}. Columns: {ema_activity_df.columns.tolist()}")
+            return pd.DataFrame()
         features = ema_activity_df.groupby('user_id').agg(
             avg_activity = ('activity_score', 'mean')
         ).reset_index()
@@ -310,7 +397,11 @@ class FeatureEngineer:
         if ema_stress_df.empty:
             logger.warning("EMA Stress data is empty.")
             return pd.DataFrame()
-        # 假設 ema_stress_df 有 user_id, stress_score
+        required_cols = ['user_id', 'stress_score']
+        missing_cols = [col for col in required_cols if col not in ema_stress_df.columns]
+        if missing_cols:
+            logger.warning(f"EMA Stress data missing columns: {missing_cols}. Columns: {ema_stress_df.columns.tolist()}")
+            return pd.DataFrame()
         features = ema_stress_df.groupby('user_id').agg(
             avg_stress = ('stress_score', 'mean')
         ).reset_index()
@@ -320,7 +411,11 @@ class FeatureEngineer:
         if ema_social_df.empty:
             logger.warning("EMA Social data is empty.")
             return pd.DataFrame()
-        # 假設 ema_social_df 有 user_id, social_score
+        required_cols = ['user_id', 'social_score']
+        missing_cols = [col for col in required_cols if col not in ema_social_df.columns]
+        if missing_cols:
+            logger.warning(f"EMA Social data missing columns: {missing_cols}. Columns: {ema_social_df.columns.tolist()}")
+            return pd.DataFrame()
         features = ema_social_df.groupby('user_id').agg(
             avg_social = ('social_score', 'mean')
         ).reset_index()
@@ -330,7 +425,11 @@ class FeatureEngineer:
         if ema_pam_df.empty:
             logger.warning("EMA PAM data is empty.")
             return pd.DataFrame()
-        # 假設 ema_pam_df 有 user_id, pam_score
+        required_cols = ['user_id', 'pam_score']
+        missing_cols = [col for col in required_cols if col not in ema_pam_df.columns]
+        if missing_cols:
+            logger.warning(f"EMA PAM data missing columns: {missing_cols}. Columns: {ema_pam_df.columns.tolist()}")
+            return pd.DataFrame()
         features = ema_pam_df.groupby('user_id').agg(
             avg_pam = ('pam_score', 'mean')
         ).reset_index()
