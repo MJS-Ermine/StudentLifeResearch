@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 import logging
 from tqdm import tqdm
 
-from config import DATA_ROOT
+from src.config import DATA_ROOT
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

@@ -6,12 +6,33 @@ import numpy as np
 from typing import Dict, List, Optional, Union
 from datetime import datetime, timedelta
 import logging
-from config import FEATURE_PARAMS
+from src.config import FEATURE_PARAMS
 from src.data_loader import StudentLifeLoader
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+def robust_column_mapping(df: pd.DataFrame, mapping_dict: dict) -> pd.DataFrame:
+    """
+    自動將 df 欄位名稱依 mapping_dict 進行對應與轉換，支援去除空白、大小寫不敏感。
+    Args:
+        df: 原始 DataFrame
+        mapping_dict: {標準欄位: [可能的別名列表]}
+    Returns:
+        欄位已標準化的 DataFrame
+    """
+    col_map = {col.strip().lower(): col for col in df.columns}
+    for std_col, aliases in mapping_dict.items():
+        found = None
+        for alias in aliases:
+            alias_key = alias.strip().lower()
+            if alias_key in col_map:
+                found = col_map[alias_key]
+                break
+        if found and std_col not in df.columns:
+            df = df.rename(columns={found: std_col})
+    return df
 
 class FeatureEngineer:
     """Class for engineering features from StudentLife dataset."""
@@ -29,7 +50,14 @@ class FeatureEngineer:
         if sleep_df.empty:
             logger.warning("Sleep data is empty.")
             return pd.DataFrame()
-        required_cols = ['user_id', 'sleep_duration', 'time_in_bed', 'is_weekend']
+        mapping = {
+            'user_id': ['user_id', 'uid'],
+            'sleep_duration': ['sleep_duration', 'duration'],
+            'time_in_bed': ['time_in_bed'],
+            'is_weekend': ['is_weekend']
+        }
+        sleep_df = robust_column_mapping(sleep_df, mapping)
+        required_cols = list(mapping.keys())
         missing_cols = [col for col in required_cols if col not in sleep_df.columns]
         if missing_cols:
             logger.warning(f"Sleep data missing columns: {missing_cols}. Columns: {sleep_df.columns.tolist()}")
@@ -46,6 +74,12 @@ class FeatureEngineer:
         if phonelock_df.empty:
             logger.warning("Phonelock data is empty.")
             return pd.DataFrame()
+        mapping = {
+            'user_id': ['user_id', 'uid'],
+            'event_type': ['event_type'],
+            'timestamp': ['timestamp', 'time', 'datetime', 'start', 'end']
+        }
+        phonelock_df = robust_column_mapping(phonelock_df, mapping)
         # 自動偵測時間欄位
         time_col = None
         for col in ['timestamp', 'time', 'datetime', 'start', 'end']:
@@ -74,7 +108,15 @@ class FeatureEngineer:
         if activity_df.empty:
             logger.warning("Activity data is empty.")
             return pd.DataFrame()
-        required_cols = ['steps', 'gps_radius', 'is_outside', 'user_id']
+        mapping = {
+            'user_id': ['user_id', 'uid'],
+            'steps': ['steps', 'step_count'],
+            'gps_radius': ['gps_radius'],
+            'is_outside': ['is_outside'],
+            'activity_inference': ['activity_inference', ' activity inference']
+        }
+        activity_df = robust_column_mapping(activity_df, mapping)
+        required_cols = list(mapping.keys())
         missing_cols = [col for col in required_cols if col not in activity_df.columns]
         if missing_cols:
             logger.warning(f"Activity data missing columns: {missing_cols}. Columns: {activity_df.columns.tolist()}")
@@ -147,7 +189,13 @@ class FeatureEngineer:
         if audio_df.empty:
             logger.warning("Audio data is empty.")
             return pd.DataFrame()
-        required_cols = ['conversation_duration', 'noise_level', 'user_id']
+        mapping = {
+            'user_id': ['user_id', 'uid'],
+            'conversation_duration': ['conversation_duration', 'duration'],
+            'noise_level': ['noise_level']
+        }
+        audio_df = robust_column_mapping(audio_df, mapping)
+        required_cols = list(mapping.keys())
         missing_cols = [col for col in required_cols if col not in audio_df.columns]
         if missing_cols:
             logger.warning(f"Audio data missing columns: {missing_cols}. Columns: {audio_df.columns.tolist()}")
@@ -162,7 +210,12 @@ class FeatureEngineer:
         if conv_df.empty:
             logger.warning("Conversation data is empty.")
             return pd.DataFrame()
-        required_cols = ['duration', 'user_id']
+        mapping = {
+            'user_id': ['user_id', 'uid'],
+            'duration': ['duration', 'conversation_duration']
+        }
+        conv_df = robust_column_mapping(conv_df, mapping)
+        required_cols = list(mapping.keys())
         missing_cols = [col for col in required_cols if col not in conv_df.columns]
         if missing_cols:
             logger.warning(f"Conversation data missing columns: {missing_cols}. Columns: {conv_df.columns.tolist()}")
@@ -206,7 +259,12 @@ class FeatureEngineer:
         if bluetooth_df.empty:
             logger.warning("Bluetooth data is empty.")
             return pd.DataFrame()
-        required_cols = ['user_id', 'device_count']
+        mapping = {
+            'user_id': ['user_id', 'uid'],
+            'device_count': ['device_count']
+        }
+        bluetooth_df = robust_column_mapping(bluetooth_df, mapping)
+        required_cols = list(mapping.keys())
         missing_cols = [col for col in required_cols if col not in bluetooth_df.columns]
         if missing_cols:
             logger.warning(f"Bluetooth data missing columns: {missing_cols}. Columns: {bluetooth_df.columns.tolist()}")
@@ -220,7 +278,12 @@ class FeatureEngineer:
         if wifi_df.empty:
             logger.warning("WiFi data is empty.")
             return pd.DataFrame()
-        required_cols = ['user_id', 'location_id']
+        mapping = {
+            'user_id': ['user_id', 'uid'],
+            'location_id': ['location_id']
+        }
+        wifi_df = robust_column_mapping(wifi_df, mapping)
+        required_cols = list(mapping.keys())
         missing_cols = [col for col in required_cols if col not in wifi_df.columns]
         if missing_cols:
             logger.warning(f"WiFi data missing columns: {missing_cols}. Columns: {wifi_df.columns.tolist()}")
@@ -234,7 +297,12 @@ class FeatureEngineer:
         if phonecharge_df.empty:
             logger.warning("Phonecharge data is empty.")
             return pd.DataFrame()
-        required_cols = ['user_id', 'timestamp']
+        mapping = {
+            'user_id': ['user_id', 'uid'],
+            'timestamp': ['timestamp', 'start', 'end', 'datetime']
+        }
+        phonecharge_df = robust_column_mapping(phonecharge_df, mapping)
+        required_cols = list(mapping.keys())
         missing_cols = [col for col in required_cols if col not in phonecharge_df.columns]
         if missing_cols:
             logger.warning(f"Phonecharge data missing columns: {missing_cols}. Columns: {phonecharge_df.columns.tolist()}")
@@ -250,7 +318,12 @@ class FeatureEngineer:
         if dark_df.empty:
             logger.warning("Dark data is empty.")
             return pd.DataFrame()
-        required_cols = ['user_id', 'dark_duration']
+        mapping = {
+            'user_id': ['user_id', 'uid'],
+            'dark_duration': ['dark_duration', 'duration']
+        }
+        dark_df = robust_column_mapping(dark_df, mapping)
+        required_cols = list(mapping.keys())
         missing_cols = [col for col in required_cols if col not in dark_df.columns]
         if missing_cols:
             logger.warning(f"Dark data missing columns: {missing_cols}. Columns: {dark_df.columns.tolist()}")
@@ -264,7 +337,13 @@ class FeatureEngineer:
         if app_usage_df.empty:
             logger.warning("App usage data is empty.")
             return pd.DataFrame()
-        required_cols = ['user_id', 'app_category', 'usage_time']
+        mapping = {
+            'user_id': ['user_id', 'uid'],
+            'app_category': ['app_category', 'category'],
+            'usage_time': ['usage_time', 'duration']
+        }
+        app_usage_df = robust_column_mapping(app_usage_df, mapping)
+        required_cols = list(mapping.keys())
         missing_cols = [col for col in required_cols if col not in app_usage_df.columns]
         if missing_cols:
             logger.warning(f"App usage data missing columns: {missing_cols}. Columns: {app_usage_df.columns.tolist()}")
@@ -278,7 +357,12 @@ class FeatureEngineer:
         if dinning_df.empty:
             logger.warning("Dinning data is empty.")
             return pd.DataFrame()
-        required_cols = ['user_id', 'meal_time']
+        mapping = {
+            'user_id': ['user_id', 'uid'],
+            'meal_time': ['meal_time', 'time', 'datetime', 'start', 'end']
+        }
+        dinning_df = robust_column_mapping(dinning_df, mapping)
+        required_cols = list(mapping.keys())
         missing_cols = [col for col in required_cols if col not in dinning_df.columns]
         if missing_cols:
             logger.warning(f"Dinning data missing columns: {missing_cols}. Columns: {dinning_df.columns.tolist()}")
@@ -294,7 +378,13 @@ class FeatureEngineer:
         if panas_df.empty:
             logger.warning("PANAS data is empty.")
             return pd.DataFrame()
-        required_cols = ['user_id', 'positive', 'negative']
+        mapping = {
+            'user_id': ['user_id', 'uid'],
+            'positive': ['positive'],
+            'negative': ['negative']
+        }
+        panas_df = robust_column_mapping(panas_df, mapping)
+        required_cols = list(mapping.keys())
         missing_cols = [col for col in required_cols if col not in panas_df.columns]
         if missing_cols:
             logger.warning(f"PANAS data missing columns: {missing_cols}. Columns: {panas_df.columns.tolist()}")
@@ -309,7 +399,12 @@ class FeatureEngineer:
         if psqi_df.empty:
             logger.warning("PSQI data is empty.")
             return pd.DataFrame()
-        required_cols = ['user_id', 'psqi_score']
+        mapping = {
+            'user_id': ['user_id', 'uid'],
+            'psqi_score': ['psqi_score']
+        }
+        psqi_df = robust_column_mapping(psqi_df, mapping)
+        required_cols = list(mapping.keys())
         missing_cols = [col for col in required_cols if col not in psqi_df.columns]
         if missing_cols:
             logger.warning(f"PSQI data missing columns: {missing_cols}. Columns: {psqi_df.columns.tolist()}")
@@ -323,7 +418,16 @@ class FeatureEngineer:
         if bigfive_df.empty:
             logger.warning("BigFive data is empty.")
             return pd.DataFrame()
-        required_cols = ['user_id', 'openness', 'conscientiousness', 'extraversion', 'agreeableness', 'neuroticism']
+        mapping = {
+            'user_id': ['user_id', 'uid'],
+            'openness': ['openness'],
+            'conscientiousness': ['conscientiousness'],
+            'extraversion': ['extraversion'],
+            'agreeableness': ['agreeableness'],
+            'neuroticism': ['neuroticism']
+        }
+        bigfive_df = robust_column_mapping(bigfive_df, mapping)
+        required_cols = list(mapping.keys())
         missing_cols = [col for col in required_cols if col not in bigfive_df.columns]
         if missing_cols:
             logger.warning(f"BigFive data missing columns: {missing_cols}. Columns: {bigfive_df.columns.tolist()}")
@@ -341,7 +445,12 @@ class FeatureEngineer:
         if flourishing_df.empty:
             logger.warning("Flourishing data is empty.")
             return pd.DataFrame()
-        required_cols = ['user_id', 'flourishing_score']
+        mapping = {
+            'user_id': ['user_id', 'uid'],
+            'flourishing_score': ['flourishing_score']
+        }
+        flourishing_df = robust_column_mapping(flourishing_df, mapping)
+        required_cols = list(mapping.keys())
         missing_cols = [col for col in required_cols if col not in flourishing_df.columns]
         if missing_cols:
             logger.warning(f"Flourishing data missing columns: {missing_cols}. Columns: {flourishing_df.columns.tolist()}")
@@ -355,7 +464,12 @@ class FeatureEngineer:
         if loneliness_df.empty:
             logger.warning("Loneliness data is empty.")
             return pd.DataFrame()
-        required_cols = ['user_id', 'loneliness_score']
+        mapping = {
+            'user_id': ['user_id', 'uid'],
+            'loneliness_score': ['loneliness_score']
+        }
+        loneliness_df = robust_column_mapping(loneliness_df, mapping)
+        required_cols = list(mapping.keys())
         missing_cols = [col for col in required_cols if col not in loneliness_df.columns]
         if missing_cols:
             logger.warning(f"Loneliness data missing columns: {missing_cols}. Columns: {loneliness_df.columns.tolist()}")
@@ -369,7 +483,12 @@ class FeatureEngineer:
         if vr12_df.empty:
             logger.warning("VR-12 data is empty.")
             return pd.DataFrame()
-        required_cols = ['user_id', 'vr12_score']
+        mapping = {
+            'user_id': ['user_id', 'uid'],
+            'vr12_score': ['vr12_score']
+        }
+        vr12_df = robust_column_mapping(vr12_df, mapping)
+        required_cols = list(mapping.keys())
         missing_cols = [col for col in required_cols if col not in vr12_df.columns]
         if missing_cols:
             logger.warning(f"VR-12 data missing columns: {missing_cols}. Columns: {vr12_df.columns.tolist()}")
@@ -383,7 +502,12 @@ class FeatureEngineer:
         if ema_activity_df.empty:
             logger.warning("EMA Activity data is empty.")
             return pd.DataFrame()
-        required_cols = ['user_id', 'activity_score']
+        mapping = {
+            'user_id': ['user_id', 'uid'],
+            'activity_score': ['activity_score']
+        }
+        ema_activity_df = robust_column_mapping(ema_activity_df, mapping)
+        required_cols = list(mapping.keys())
         missing_cols = [col for col in required_cols if col not in ema_activity_df.columns]
         if missing_cols:
             logger.warning(f"EMA Activity data missing columns: {missing_cols}. Columns: {ema_activity_df.columns.tolist()}")
@@ -397,7 +521,12 @@ class FeatureEngineer:
         if ema_stress_df.empty:
             logger.warning("EMA Stress data is empty.")
             return pd.DataFrame()
-        required_cols = ['user_id', 'stress_score']
+        mapping = {
+            'user_id': ['user_id', 'uid'],
+            'stress_score': ['stress_score']
+        }
+        ema_stress_df = robust_column_mapping(ema_stress_df, mapping)
+        required_cols = list(mapping.keys())
         missing_cols = [col for col in required_cols if col not in ema_stress_df.columns]
         if missing_cols:
             logger.warning(f"EMA Stress data missing columns: {missing_cols}. Columns: {ema_stress_df.columns.tolist()}")
@@ -411,7 +540,12 @@ class FeatureEngineer:
         if ema_social_df.empty:
             logger.warning("EMA Social data is empty.")
             return pd.DataFrame()
-        required_cols = ['user_id', 'social_score']
+        mapping = {
+            'user_id': ['user_id', 'uid'],
+            'social_score': ['social_score']
+        }
+        ema_social_df = robust_column_mapping(ema_social_df, mapping)
+        required_cols = list(mapping.keys())
         missing_cols = [col for col in required_cols if col not in ema_social_df.columns]
         if missing_cols:
             logger.warning(f"EMA Social data missing columns: {missing_cols}. Columns: {ema_social_df.columns.tolist()}")
@@ -425,7 +559,12 @@ class FeatureEngineer:
         if ema_pam_df.empty:
             logger.warning("EMA PAM data is empty.")
             return pd.DataFrame()
-        required_cols = ['user_id', 'pam_score']
+        mapping = {
+            'user_id': ['user_id', 'uid'],
+            'pam_score': ['pam_score']
+        }
+        ema_pam_df = robust_column_mapping(ema_pam_df, mapping)
+        required_cols = list(mapping.keys())
         missing_cols = [col for col in required_cols if col not in ema_pam_df.columns]
         if missing_cols:
             logger.warning(f"EMA PAM data missing columns: {missing_cols}. Columns: {ema_pam_df.columns.tolist()}")

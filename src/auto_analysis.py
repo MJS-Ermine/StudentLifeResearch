@@ -11,9 +11,9 @@ from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LinearRegression, Ridge
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
-from data_loader import StudentLifeLoader
-from feature_engineering import FeatureEngineer, merge_all_features
-from config import RESULTS_ROOT, FIGURES_ROOT
+from src.data_loader import StudentLifeLoader
+from src.feature_engineering import FeatureEngineer, merge_all_features
+from src.config import RESULTS_ROOT, FIGURES_ROOT
 import logging
 
 logger = logging.getLogger(__name__)
@@ -27,6 +27,7 @@ def load_features_and_target():
     features = merge_all_features(loader, engineer)
     gpa_df = loader.load_gpa_data()
     # 自動偵測 user_id 欄位
+    gpa_df.columns = [c.strip() for c in gpa_df.columns]  # 去除欄位空白
     if 'user_id' not in gpa_df.columns:
         if 'uid' in gpa_df.columns:
             gpa_df['user_id'] = gpa_df['uid']
@@ -35,12 +36,16 @@ def load_features_and_target():
             return pd.DataFrame(), pd.Series(dtype=float)
     # 自動偵測 gpa 欄位
     gpa_col = None
-    for col in ['gpa', 'GPA', 'grade', 'final', 'score']:
-        if col in gpa_df.columns:
-            gpa_col = col
+    gpa_candidates = [c for c in gpa_df.columns if 'gpa' in c.lower() or 'grade' in c.lower() or 'score' in c.lower() or 'final' in c.lower()]
+    # 優先選 gpa all
+    for c in gpa_candidates:
+        if c.lower().replace('_','').replace(' ','') in ['gpaall','gpa_all','gpa all']:
+            gpa_col = c
             break
+    if gpa_col is None and gpa_candidates:
+        gpa_col = gpa_candidates[0]
     if gpa_col is None:
-        logger.warning(f"GPA data missing gpa column (tried: gpa, GPA, grade, final, score). Columns: {gpa_df.columns.tolist()}")
+        logger.warning(f"GPA data missing gpa column (tried: gpa, GPA, grade, final, score, gpa all, gpa_13s, cs65). Columns: {gpa_df.columns.tolist()}")
         return pd.DataFrame(), pd.Series(dtype=float)
     # 合併
     if features is None or features.empty:
@@ -98,7 +103,7 @@ def train_and_evaluate_models(features: pd.DataFrame, target: pd.Series):
         y_pred = model.predict(X_test)
         results[name] = {
             'R2': r2_score(y_test, y_pred),
-            'RMSE': mean_squared_error(y_test, y_pred, squared=False),
+            'RMSE': mean_squared_error(y_test, y_pred) ** 0.5,
             'MAE': mean_absolute_error(y_test, y_pred)
         }
         if hasattr(model, 'coef_'):

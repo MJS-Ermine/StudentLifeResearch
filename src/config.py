@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Dict, Any
 
 # Project paths
-PROJECT_ROOT = Path(__file__).parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_ROOT = PROJECT_ROOT / "data" / "dataset"
 RESULTS_ROOT = PROJECT_ROOT / "results"
 FIGURES_ROOT = PROJECT_ROOT / "results" / "figures"
