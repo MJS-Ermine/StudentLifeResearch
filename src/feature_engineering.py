@@ -6,8 +6,8 @@ import numpy as np
 from typing import Dict, List, Optional, Union
 from datetime import datetime, timedelta
 import logging
-from src.config import FEATURE_PARAMS
-from src.data_loader import StudentLifeLoader
+from config import FEATURE_PARAMS
+from data_loader import StudentLifeLoader
 from scipy.stats import entropy as shannon_entropy
 
 # Configure logging
