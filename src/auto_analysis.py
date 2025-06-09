@@ -15,10 +15,21 @@ from src.data_loader import StudentLifeLoader
 from src.feature_engineering import FeatureEngineer, merge_all_features
 from src.config import RESULTS_ROOT, FIGURES_ROOT
 import logging
+import missingno as msno
+from collections import defaultdict
 
 logger = logging.getLogger(__name__)
 
 REPORT_PATH = RESULTS_ROOT / 'auto_report.md'
+FEATURES_NAN_BAR_PATH = FIGURES_ROOT / 'features_nan_bar.png'
+FEATURES_NAN_REPORT_PATH = RESULTS_ROOT / 'features_nan_report.md'
+IMPUTE_SUGGEST_PATH = RESULTS_ROOT / 'features_impute_suggestion.md'
+COLUMN_STD_PATH = RESULTS_ROOT / 'column_standardization_suggestion.md'
+MISSING_MATRIX_PATH = FIGURES_ROOT / 'features_missing_matrix.png'
+MISSING_HEATMAP_PATH = FIGURES_ROOT / 'features_missing_corr_heatmap.png'
+OUTLIER_REPORT_PATH = RESULTS_ROOT / 'features_outlier_report.md'
+OUTLIER_BAR_PATH = FIGURES_ROOT / 'features_outlier_bar.png'
+TARGET_LEAKAGE_REPORT_PATH = RESULTS_ROOT / 'target_leakage_report.md'
 
 # 1. 載入所有特徵
 def load_features_and_target():
@@ -132,34 +143,213 @@ def generate_report(results: dict, feature_importances: dict):
         logger.warning("No results or feature importances to generate report.")
         return
     with open(REPORT_PATH, 'w', encoding='utf-8') as f:
-        f.write('# StudentLife 自動化初步分析報告\n\n')
-        f.write('## 1. 研究背景\n')
-        f.write('本報告基於 StudentLife dataset，探討大學生日常行為、心理狀態與學業表現之間的關聯，並以多種機器學習模型進行 GPA 預測與特徵重要性分析。\n\n')
-        f.write('## 2. 模型效能比較\n')
+        f.write('# StudentLife Auto Analysis Report\n\n')
+        f.write('## 1. Research Background\n')
+        f.write('This report is based on the StudentLife dataset, exploring the relationship between college students\' daily behaviors, psychological states, and academic performance, and using multiple machine learning models for GPA prediction and feature importance analysis.\n\n')
+        f.write('## 2. Model Performance Comparison\n')
         f.write('| Model | R2 | RMSE | MAE |\n')
         f.write('|-------|----|------|-----|\n')
         for model, res in results.items():
             f.write(f'| {model} | {res["R2"]:.3f} | {res["RMSE"]:.3f} | {res["MAE"]:.3f} |\n')
         f.write('\n![](figures/correlation_heatmap.png)\n')
         for model in feature_importances:
-            f.write(f'\n### {model} 特徵重要性\n')
+            f.write(f'\n### {model} Feature Importance\n')
             f.write(f'![](figures/feature_importance_{model}.png)\n')
-        f.write('\n## 3. 初步發現摘要\n')
-        f.write('- 部分行為特徵（如睡眠、手機使用、活動、心理狀態）對 GPA 具顯著預測力。\n')
-        f.write('- 不同模型對特徵重要性的排序略有差異，建議後續進行更細緻的理論詮釋與模型優化。\n')
-        f.write('- 詳細分布圖與特徵相關性請見 results/figures/ 目錄。\n')
+        f.write('\n## 3. Initial Findings Summary\n')
+        f.write('- Some behavioral features (such as sleep, phone usage, activity, and psychological state) have significant predictive power for GPA.\n')
+        f.write('- Different models have slightly different rankings of feature importance, suggesting further theoretical interpretation and model optimization.\n')
+        f.write('- Detailed distribution graphs and feature correlations can be found in the results/figures/ directory.\n')
+
+def create_features(data: pd.DataFrame):
+    """Create features from the raw data."""
+    logger.info("Creating features...")
+    engineer = FeatureEngineer()
+    features = engineer.create_all_features(data)
+    # 自動補值，避免 NaN 導致模型報錯
+    features = features.fillna(0)
+    logger.info(f"Created features shape: {features.shape}")
+    return features
 
 if __name__ == "__main__":
     print("[INFO] 載入特徵與目標...")
     features, target = load_features_and_target()
-    print("[INFO] 產生特徵分布圖...")
+    # 強制所有欄位名稱為字串，避免 sklearn 報錯
+    features.columns = features.columns.astype(str)
+    # ====== 欄位命名標準化建議（只產生 mapping，不自動覆蓋） ======
+    col_map = defaultdict(list)
+    for col in features.columns:
+        std_col = str(col).strip().lower().replace(' ', '_')
+        if std_col in ['uid', 'user_id']:
+            col_map['user_id'].append(col)
+        elif std_col in ['steps', 'step_count']:
+            col_map['step_count'].append(col)
+        elif std_col in ['activity_inference', 'activity inference']:
+            col_map['activity_inference'].append(col)
+        else:
+            col_map[std_col].append(col)
+    with open(COLUMN_STD_PATH, 'w', encoding='utf-8') as f:
+        f.write('# 欄位命名標準化建議（自動產生）\n')
+        f.write('本報告自動偵測常見異名欄位，建議統一命名如下：\n\n')
+        f.write('| 建議標準名 | 原始名列表 |\n')
+        f.write('|------------|------------|\n')
+        for std, raw_list in col_map.items():
+            if len(raw_list) > 1 or std in ['user_id', 'step_count', 'activity_inference']:
+                f.write(f'| {std} | {", ".join(raw_list)} |\n')
+    print(f"[INFO] 已產生欄位命名標準化建議: {COLUMN_STD_PATH}")
+    # ====== 自動補值（根據建議自動執行） ======
+    nan_per_col = features.isna().sum()
+    nan_ratio_per_col = features.isna().mean()
+    impute_log = []
+    for col in features.columns:
+        n_nan = nan_per_col[col]
+        ratio = nan_ratio_per_col[col]
+        dtype = str(features[col].dtype)
+        if n_nan == 0:
+            continue
+        if dtype.startswith('float') or dtype.startswith('int'):
+            if ratio < 0.05:
+                fill_value = features[col].mean()
+                features[col] = features[col].fillna(fill_value)
+                impute_log.append(f'- {col}：以平均數 {fill_value:.4f} 補值')
+            elif ratio < 0.3:
+                fill_value = features[col].median()
+                features[col] = features[col].fillna(fill_value)
+                impute_log.append(f'- {col}：以中位數 {fill_value:.4f} 補值')
+            else:
+                features[col] = features[col].fillna(0)
+                impute_log.append(f'- {col}：缺失比例過高，直接補 0')
+        else:
+            fill_value = features[col].mode().iloc[0] if not features[col].mode().empty else 'missing'
+            features[col] = features[col].fillna(fill_value)
+            impute_log.append(f'- {col}：以眾數 "{fill_value}" 補值')
+    with open(IMPUTE_SUGGEST_PATH, 'w', encoding='utf-8') as f:
+        f.write('# 特徵補值執行紀錄（自動產生）\n')
+        f.write('本報告記錄每個特徵實際自動補值方式與數值。\n\n')
+        if not impute_log:
+            f.write('所有特徵皆無缺失值，無需補值。\n')
+        else:
+            for log in impute_log:
+                f.write(log + '\n')
+    print(f"[INFO] 已自動補值並產生補值紀錄: {IMPUTE_SUGGEST_PATH}")
+    # ====== 異常值偵測（自動產生分布圖與報告，不自動修正） ======
+    outlier_counts = {}
+    for col in features.select_dtypes(include=['float', 'int']).columns:
+        x = features[col]
+        q1 = x.quantile(0.25)
+        q3 = x.quantile(0.75)
+        iqr = q3 - q1
+        lower = q1 - 1.5 * iqr
+        upper = q3 + 1.5 * iqr
+        outlier = ((x < lower) | (x > upper)) & (~x.isna())
+        outlier_counts[col] = outlier.sum()
+    # 畫出異常值數量條形圖
+    if outlier_counts:
+        outlier_series = pd.Series(outlier_counts)
+        plt.figure(figsize=(min(16, 0.5+0.5*len(outlier_series)), 6))
+        outlier_series[outlier_series>0].sort_values(ascending=False).plot(kind='bar')
+        plt.title('Outlier Count per Feature')
+        plt.ylabel('Outlier Count')
+        plt.xlabel('Feature Name')
+        plt.tight_layout()
+        plt.savefig(OUTLIER_BAR_PATH)
+        plt.close()
+        print(f"[INFO] 已產生異常值分布圖: {OUTLIER_BAR_PATH}")
+    # 產生異常值詳細報告
+    with open(OUTLIER_REPORT_PATH, 'w', encoding='utf-8') as f:
+        f.write('# 特徵異常值偵測報告（自動產生）\n')
+        f.write('本報告統計每個數值型特徵的異常值數量與比例，僅偵測不自動修正。\n\n')
+        f.write('| 特徵名稱 | 異常值數量 | 異常值比例 |\n')
+        f.write('|----------|----------|----------|\n')
+        for col, count in outlier_counts.items():
+            ratio = count / len(features) if len(features) > 0 else 0
+            if count > 0:
+                f.write(f'| {col} | {count} | {ratio:.2%} |\n')
+        if any(v > 0 for v in outlier_counts.values()):
+            f.write(f'\n![](figures/features_outlier_bar.png)\n')
+    print(f"[INFO] 已產生異常值偵測報告: {OUTLIER_REPORT_PATH}")
+    # ====== Auto-generated features missing distribution graph and detailed missing report ======
+    nan_count = features.isna().sum().sum()
+    nan_cols = features.columns[features.isna().any()].tolist()
+    nan_per_col = features.isna().sum()
+    nan_ratio_per_col = features.isna().mean()
+    # 1. Bar plot (English labels)
+    if nan_count > 0:
+        plt.figure(figsize=(min(16, 0.5+0.5*len(features.columns)), 6))
+        nan_per_col[nan_per_col>0].sort_values(ascending=False).plot(kind='bar')
+        plt.title('Missing Value Count per Feature')
+        plt.ylabel('Missing (NaN) Count')
+        plt.xlabel('Feature Name')
+        plt.tight_layout()
+        plt.savefig(FEATURES_NAN_BAR_PATH)
+        plt.close()
+        print(f"[INFO] 已產生 features 缺失分布圖: {FEATURES_NAN_BAR_PATH}")
+    # 2. Missing matrix (English title)
+    if nan_count > 0:
+        plt.figure(figsize=(min(16, 0.5+0.5*len(features.columns)), 8))
+        msno.matrix(features, fontsize=12)
+        plt.title('Missing Data Matrix (per sample)')
+        plt.tight_layout()
+        plt.savefig(MISSING_MATRIX_PATH)
+        plt.close()
+        print(f"[INFO] 已產生 features 缺失矩陣圖: {MISSING_MATRIX_PATH}")
+    # 3. Missing correlation heatmap (English title)
+    if nan_count > 0:
+        plt.figure(figsize=(min(16, 0.5+0.5*len(features.columns)), 8))
+        msno.heatmap(features, fontsize=12)
+        plt.title('Missing Data Correlation Heatmap')
+        plt.tight_layout()
+        plt.savefig(MISSING_HEATMAP_PATH)
+        plt.close()
+        print(f"[INFO] 已產生 features 缺失相關性熱圖: {MISSING_HEATMAP_PATH}")
+    # 4. Generate detailed missing report
+    with open(FEATURES_NAN_REPORT_PATH, 'w', encoding='utf-8') as f:
+        f.write('# Detailed Missing Value Report (Auto-generated)\n')
+        f.write('This report summarizes the NaN count and ratio for each feature in the final training features.\n\n')
+        if nan_count == 0:
+            f.write('All features have no missing values (NaN).\n')
+        else:
+            f.write(f'Total missing value count: {nan_count}\n\n')
+            f.write('| Feature Name | NaN Count | NaN Ratio |\n')
+            f.write('|------------|----------|----------|\n')
+            for col in features.columns:
+                if nan_per_col[col] > 0:
+                    f.write(f'| {col} | {nan_per_col[col]} | {nan_ratio_per_col[col]:.2%} |\n')
+            if nan_count > 0:
+                f.write(f'\n![](figures/features_nan_bar.png)\n')
+                f.write(f'\n![](figures/features_missing_matrix.png)\n')
+                f.write(f'\n![](figures/features_missing_corr_heatmap.png)\n')
+    print(f"[INFO] 已產生 features 缺失詳細報告: {FEATURES_NAN_REPORT_PATH}")
+    # ====== Model training before auto-imputation and NaN check ======
+    nan_count = features.isna().sum().sum()
+    if nan_count > 0:
+        nan_cols = features.columns[features.isna().any()].tolist()
+        logger.warning(f"[NaN Check] Model training before features still have NaN, total {nan_count} in columns: {nan_cols}")
+        print(f"[WARNING] Model training before features still have NaN, total {nan_count} in columns: {nan_cols}")
+        features = features.fillna(0)
+        logger.info("All NaN automatically filled with 0.")
+    else:
+        logger.info("[NaN Check] Model training before features have no NaN.")
+    print("[INFO] Generating feature distribution graph...")
     plot_feature_distributions(features)
-    print("[INFO] 產生相關性熱圖...")
+    print("[INFO] Generating correlation heatmap...")
     plot_correlation_heatmap(features, target)
-    print("[INFO] 訓練模型並比較效能...")
+    print("[INFO] Training models and comparing performance...")
     results, feature_importances = train_and_evaluate_models(features, target)
-    print("[INFO] 產生特徵重要性圖...")
+    print("[INFO] Generating feature importance graph...")
     plot_feature_importance(feature_importances)
-    print("[INFO] 產生自動化初步報告...")
+    print("[INFO] Generating auto-generated preliminary report...")
     generate_report(results, feature_importances)
-    print("[INFO] 自動化分析完成，請查看 results/auto_report.md 及 results/figures/") 
+    print("[INFO] Auto analysis completed, please check results/auto_report.md and results/figures/")
+    # ====== Target leakage 檢查 ======
+    leakage_cols = [c for c in features.columns if any(x in c.lower() for x in ['gpa', 'grade', 'score', 'target', 'final'])]
+    with open(TARGET_LEAKAGE_REPORT_PATH, 'w', encoding='utf-8') as f:
+        f.write('# 目標洩漏（Target Leakage）自動檢查報告\n')
+        f.write('本報告自動檢查 features 是否含有與目標（如 gpa、grade、score、target、final）相關欄位。\n\n')
+        if leakage_cols:
+            f.write('## 發現疑似目標洩漏欄位：\n')
+            for c in leakage_cols:
+                f.write(f'- {c}\n')
+            f.write('\n建議：請勿將上述欄位作為特徵進行模型訓練，否則會造成評估失真。\n')
+        else:
+            f.write('未發現疑似目標洩漏欄位，資料安全。\n')
+    print(f"[INFO] 已產生 target leakage 檢查報告: {TARGET_LEAKAGE_REPORT_PATH}") 

@@ -100,17 +100,54 @@ class StudentLifeLoader:
     
     def load_ema_data(self, subfolder: str = "Mood") -> pd.DataFrame:
         """
-        批次讀取 EMA/response/ 下指定子資料夾的所有 csv，合併為一個 DataFrame。
+        批次讀取 EMA/response/ 下指定子資料夾的所有 csv/json，合併為一個 DataFrame。
+        自動展開 json 結構並標準化欄位。
         """
         ema_dir = self.data_root / "EMA" / "response" / subfolder
         if not ema_dir.exists():
             logger.warning(f"EMA subfolder not found: {ema_dir}")
             return pd.DataFrame()
         all_csv = list(ema_dir.glob("*.csv"))
-        if not all_csv:
-            logger.warning(f"No csv files in {ema_dir}")
+        all_json = list(ema_dir.glob("*.json"))
+        df_list = []
+        # 讀取 csv
+        for f in all_csv:
+            try:
+                df = pd.read_csv(f)
+                # 自動加上 user_id（從檔名推斷）
+                user_id = f.stem.split('_')[-1]
+                df['user_id'] = user_id
+                df_list.append(df)
+            except Exception as e:
+                logger.warning(f"Failed to read {f}: {e}")
+        # 讀取 json
+        for f in all_json:
+            try:
+                with open(f, 'r', encoding='utf-8') as jf:
+                    data = json.load(jf)
+                # 支援單筆或多筆（list）
+                if isinstance(data, dict):
+                    records = [data]
+                elif isinstance(data, list):
+                    records = data
+                else:
+                    logger.warning(f"Unknown json structure in {f}")
+                    continue
+                # 轉為 DataFrame
+                df = pd.json_normalize(records)
+                # 自動加上 user_id（從檔名推斷）
+                user_id = f.stem.split('_')[-1]
+                df['user_id'] = user_id
+                # 標準化 timestamp 欄位
+                for col in df.columns:
+                    if 'time' in col.lower() and df[col].dtype != 'O':
+                        df[col] = pd.to_datetime(df[col], errors='coerce')
+                df_list.append(df)
+            except Exception as e:
+                logger.warning(f"Failed to read {f}: {e}")
+        if not df_list:
+            logger.warning(f"No valid csv/json files loaded in {ema_dir}")
             return pd.DataFrame()
-        df_list = [pd.read_csv(f) for f in all_csv]
         return pd.concat(df_list, ignore_index=True)
     
     def load_sensor_data(self, sensor_type: str) -> pd.DataFrame:

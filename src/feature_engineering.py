@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 import logging
 from src.config import FEATURE_PARAMS
 from src.data_loader import StudentLifeLoader
+from scipy.stats import entropy as shannon_entropy
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -574,9 +575,107 @@ class FeatureEngineer:
         ).reset_index()
         return features
 
+    def extract_activity_inference_features(self, activity_df: pd.DataFrame) -> pd.DataFrame:
+        """
+        針對 activity_inference 欄位自動推導多種統計特徵。
+        包含：各活動類型比例、活動切換次數、最常見活動、多樣性指標（Shannon entropy、unique count）、one-hot encoding。
+        """
+        if activity_df.empty:
+            logger.warning("Activity data is empty.")
+            return pd.DataFrame()
+        mapping = {
+            'user_id': ['user_id', 'uid', 'id'],
+            'activity_inference': ['activity_inference', ' activity inference']
+        }
+        activity_df = robust_column_mapping(activity_df, mapping)
+        if 'user_id' not in activity_df.columns or 'activity_inference' not in activity_df.columns:
+            logger.warning(f"Activity data missing user_id/activity_inference. Columns: {activity_df.columns.tolist()}")
+            return pd.DataFrame()
+        activity_df['activity_inference'] = activity_df['activity_inference'].astype(str).str.strip()
+        activity_counts = activity_df.groupby(['user_id', 'activity_inference']).size().unstack(fill_value=0)
+        activity_props = activity_counts.div(activity_counts.sum(axis=1), axis=0)
+        activity_props.columns = [f'activity_prop_{c}' for c in activity_props.columns]
+        # 多樣性指標
+        activity_entropy = activity_props.apply(lambda x: shannon_entropy(x + 1e-9), axis=1).rename('activity_entropy')
+        activity_unique = activity_counts.astype(bool).sum(axis=1).rename('activity_unique_count')
+        # 活動切換次數
+        def count_switches(x):
+            return (x != x.shift()).sum() - 1 if len(x) > 1 else 0
+        switches = activity_df.groupby('user_id')['activity_inference'].apply(count_switches).rename('activity_switch_count')
+        # 最常見活動
+        most_common = activity_df.groupby('user_id')['activity_inference'].agg(lambda x: x.value_counts().idxmax()).rename('most_common_activity')
+        # one-hot encoding
+        onehot = pd.get_dummies(activity_df.set_index('user_id')['activity_inference']).groupby('user_id').sum()
+        onehot.columns = [f'activity_onehot_{c}' for c in onehot.columns]
+        features = pd.concat([activity_props, activity_entropy, activity_unique, switches, most_common, onehot], axis=1).reset_index()
+        return features
+
+    def extract_audio_inference_features(self, audio_df: pd.DataFrame) -> pd.DataFrame:
+        """
+        針對 audio_inference 欄位自動推導多種統計特徵。
+        包含：各音訊狀態比例、對話段落數、最常見音訊狀態、多樣性指標（Shannon entropy、unique count）、one-hot encoding。
+        OOM防呆：僅保留必要欄位，one-hot僅針對前10名。
+        """
+        if audio_df.empty:
+            logger.warning("Audio data is empty.")
+            return pd.DataFrame()
+        mapping = {
+            'user_id': ['user_id', 'uid', 'id'],
+            'audio_inference': ['audio_inference', ' audio inference']
+        }
+        audio_df = robust_column_mapping(audio_df, mapping)
+        if 'user_id' not in audio_df.columns or 'audio_inference' not in audio_df.columns:
+            logger.warning(f"Audio data missing user_id/audio_inference. Columns: {audio_df.columns.tolist()}")
+            return pd.DataFrame()
+        # 僅保留必要欄位
+        audio_df = audio_df[['user_id', 'audio_inference']].copy()
+        # 先補齊缺失再轉字串
+        audio_df['audio_inference'] = audio_df['audio_inference'].fillna('unknown').astype(str).str.strip().str.lower()
+        # 只保留出現次數前10名，其餘歸為 'other'
+        top10 = audio_df['audio_inference'].value_counts().nlargest(10).index
+        audio_df.loc[~audio_df['audio_inference'].isin(top10), 'audio_inference'] = 'other'
+        audio_counts = audio_df.groupby(['user_id', 'audio_inference']).size().unstack(fill_value=0)
+        audio_props = audio_counts.div(audio_counts.sum(axis=1), axis=0)
+        audio_props.columns = [f'audio_prop_{c}' for c in audio_props.columns]
+        # 多樣性指標
+        audio_entropy = audio_props.apply(lambda x: shannon_entropy(x + 1e-9), axis=1).rename('audio_entropy')
+        audio_unique = audio_counts.astype(bool).sum(axis=1).rename('audio_unique_count')
+        # 對話段落數
+        conv_count = audio_df[audio_df['audio_inference'].isin(['conversation', 'speech'])].groupby('user_id').size().rename('conversation_segment_count')
+        # 最常見音訊狀態
+        most_common = audio_df.groupby('user_id')['audio_inference'].agg(lambda x: x.value_counts().idxmax()).rename('most_common_audio_state')
+        # one-hot encoding（僅前10名+other）
+        onehot = pd.get_dummies(audio_df.set_index('user_id')['audio_inference']).groupby('user_id').sum()
+        onehot.columns = [f'audio_onehot_{c}' for c in onehot.columns]
+        features = pd.concat([audio_props, audio_entropy, audio_unique, conv_count, most_common, onehot], axis=1).reset_index()
+        return features
+
+    def extract_ema_summary_features(self, ema_df: pd.DataFrame, prefix: str = "ema") -> pd.DataFrame:
+        """
+        自動產生 EMA 問卷 summary 特徵：均值、標準差、極端值比例、多樣性指標（Shannon entropy、unique count）。
+        prefix: 特徵前綴（如 ema_activity, ema_stress...）
+        """
+        if ema_df.empty or 'user_id' not in ema_df.columns:
+            logger.warning(f"EMA data is empty or missing user_id.")
+            return pd.DataFrame()
+        # 只處理數值型欄位
+        num_cols = [c for c in ema_df.columns if c not in ['user_id', 'timestamp', 'resp_time'] and np.issubdtype(ema_df[c].dtype, np.number)]
+        if not num_cols:
+            return pd.DataFrame()
+        agg = ema_df.groupby('user_id')[num_cols].agg(['mean', 'std', 'min', 'max'])
+        agg.columns = [f'{prefix}_{col}_{stat}' for col, stat in agg.columns]
+        # 極端值比例（如 min/max）
+        extreme = ema_df.groupby('user_id')[num_cols].apply(lambda x: ((x == x.min()) | (x == x.max())).mean()).add_prefix(f'{prefix}_extreme_')
+        # 多樣性指標
+        entropy_df = ema_df.groupby('user_id')[num_cols].apply(lambda x: shannon_entropy(x.value_counts(normalize=True) + 1e-9)).add_prefix(f'{prefix}_entropy_')
+        unique_df = ema_df.groupby('user_id')[num_cols].nunique().add_prefix(f'{prefix}_unique_')
+        features = pd.concat([agg, extreme, entropy_df, unique_df], axis=1).reset_index()
+        return features
+
 def merge_all_features(loader: 'StudentLifeLoader', engineer: 'FeatureEngineer') -> pd.DataFrame:
     """
     自動合併所有特徵（所有感測器、問卷、EMA），以 user_id 為 key。
+    自動對所有 EMA 問卷產生 summary/多樣性特徵。
     """
     # 讀取所有資料
     sleep_df = loader.load_sensor_data('sleep')
@@ -600,7 +699,14 @@ def merge_all_features(loader: 'StudentLifeLoader', engineer: 'FeatureEngineer')
     ema_stress_df = loader.load_ema_stress_data()
     ema_social_df = loader.load_ema_social_data()
     ema_pam_df = loader.load_ema_pam_data()
-
+    # 自動產生所有 EMA summary/多樣性特徵
+    ema_summary_list = []
+    for name, df in zip([
+        'ema_activity', 'ema_stress', 'ema_social', 'ema_pam'],
+        [ema_activity_df, ema_stress_df, ema_social_df, ema_pam_df]):
+        ema_summary = engineer.extract_ema_summary_features(df, prefix=name)
+        if ema_summary is not None and not ema_summary.empty:
+            ema_summary_list.append(ema_summary)
     # 計算所有特徵
     features_list = [
         engineer.extract_sleep_features(sleep_df),
@@ -623,8 +729,10 @@ def merge_all_features(loader: 'StudentLifeLoader', engineer: 'FeatureEngineer')
         engineer.extract_ema_activity_features(ema_activity_df),
         engineer.extract_ema_stress_features(ema_stress_df),
         engineer.extract_ema_social_features(ema_social_df),
-        engineer.extract_ema_pam_features(ema_pam_df)
-    ]
+        engineer.extract_ema_pam_features(ema_pam_df),
+        engineer.extract_activity_inference_features(activity_df),
+        engineer.extract_audio_inference_features(audio_df)
+    ] + ema_summary_list
     features = None
     for feat in features_list:
         if feat is not None and not feat.empty:
