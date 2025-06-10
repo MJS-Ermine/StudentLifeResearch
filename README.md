@@ -450,7 +450,7 @@ for col in features.columns:
 
 根據[華樂絲學術海報製作指南](https://www.editing.tw/blog/publish/%E7%A0%94%E7%A9%B6%E6%88%90%E6%9E%9C%E7%99%BC%E8%A1%A8-%E5%AD%B8%E8%A1%93%E6%B5%B7%E5%A0%B1%E8%A3%BD%E4%BD%9C%E7%9A%8413%E5%80%8B%E9%87%8D%E9%BB%9E.html)，採用IMRAD格式，每章節少於200字。
 
-#### **🎯 主標題建議**
+#### **🎯 主標題**
 ```
 大學生數位行為模式對學業表現影響之機器學習分析
 Digital Behavioral Patterns and Academic Performance: 
