@@ -419,7 +419,7 @@ for col in features.columns:
 ## 📞 **專案資訊**
 
 ### **專案狀態**: 🎉 **圓滿完成**
-### **完成時間**: 2024年12月
+### **完成時間**: 2025年6月
 ### **技術棧**: Python + scikit-learn + SHAP + pandas + matplotlib + seaborn
 ### **分析深度**: 描述性統計 → 預測建模 → 解釋性分析 → 學術報告
 ### **成果產出**: 完整的學術研究報告 + 45+張專業圖表 + 可重現的程式碼
@@ -444,7 +444,7 @@ for col in features.columns:
 
 ---
 
-## 🎨 **學術海報設計建議**
+## 🎨 **學術海報設計**
 
 ### **標準IMRAD架構海報**
 
@@ -470,7 +470,7 @@ A Machine Learning Analysis of University Students
 - **推薦圖表**：研究流程圖（pipeline圖）
 
 #### **📊 RESULTS (研究結果)**
-**核心圖表推薦**：
+**核心圖表**：
 1. **`shap_summary_plot.png`** - 特徵重要性總覽（主要圖表）
 2. **模型效能比較表** - RandomForest R²=0.735 vs 其他模型
 3. **統計顯著性表格** - 4個重要特徵 (p < 0.05)
@@ -499,7 +499,7 @@ A Machine Learning Analysis of University Students
 - **背景色**：白色或淺灰 (#f8f9fa)
 - **文字色**：深灰 (#2c3e50) 確保可讀性
 
-### **海報結論撰寫建議**
+### **海報結論撰寫**
 
 #### **主要發現 (Key Findings)**
 ✅ 大學生行為模式可預測學業表現 (R²=0.735)  
