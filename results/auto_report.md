@@ -6,9 +6,9 @@ This report is based on the StudentLife dataset, exploring the relationship betw
 ## 2. Model Performance Comparison
 | Model | R2 | RMSE | MAE |
 |-------|----|------|-----|
-| LinearRegression | 1.000 | 0.000 | 0.000 |
-| Ridge | 0.541 | 0.252 | 0.216 |
-| RandomForest | 0.923 | 0.103 | 0.099 |
+| LinearRegression | -2.052 | 0.651 | 0.531 |
+| Ridge | -1.360 | 0.572 | 0.490 |
+| RandomForest | 0.208 | 0.331 | 0.275 |
 
 ![](figures/correlation_heatmap.png)
 

@@ -615,13 +615,16 @@ class FeatureEngineer:
         針對 audio_inference 欄位自動推導多種統計特徵。
         包含：各音訊狀態比例、對話段落數、最常見音訊狀態、多樣性指標（Shannon entropy、unique count）、one-hot encoding。
         OOM防呆：僅保留必要欄位，one-hot僅針對前10名。
+        若資料量過大，僅取前10000筆進行特徵工程。
         """
         if audio_df.empty:
             logger.warning("Audio data is empty.")
             return pd.DataFrame()
+        # 欄位名稱自動去除空格
+        audio_df.columns = audio_df.columns.str.strip()
         mapping = {
             'user_id': ['user_id', 'uid', 'id'],
-            'audio_inference': ['audio_inference', ' audio inference']
+            'audio_inference': ['audio_inference', 'audio inference', ' audio inference']
         }
         audio_df = robust_column_mapping(audio_df, mapping)
         if 'user_id' not in audio_df.columns or 'audio_inference' not in audio_df.columns:
@@ -629,12 +632,23 @@ class FeatureEngineer:
             return pd.DataFrame()
         # 僅保留必要欄位
         audio_df = audio_df[['user_id', 'audio_inference']].copy()
-        # 先補齊缺失再轉字串
-        audio_df['audio_inference'] = audio_df['audio_inference'].fillna('unknown').astype(str).str.strip().str.lower()
+        # 若資料量過大，僅取前10000筆
+        if len(audio_df) > 10000:
+            logger.warning(f"Audio data too large ({len(audio_df)} rows), only using first 10000 rows for feature engineering.")
+            audio_df = audio_df.head(10000)
+        # 強制將非字串型態轉為字串，遇到異常設為 'unknown'
+        def safe_str(x):
+            try:
+                return str(x).strip().lower()
+            except Exception:
+                return 'unknown'
+        audio_df['audio_inference'] = audio_df['audio_inference'].fillna('unknown').map(safe_str)
         # 只保留出現次數前10名，其餘歸為 'other'
         top10 = audio_df['audio_inference'].value_counts().nlargest(10).index
         audio_df.loc[~audio_df['audio_inference'].isin(top10), 'audio_inference'] = 'other'
-        audio_counts = audio_df.groupby(['user_id', 'audio_inference']).size().unstack(fill_value=0)
+        # groupby 前先排序，提升效能
+        audio_df = audio_df.sort_values(['user_id', 'audio_inference'])
+        audio_counts = audio_df.groupby(['user_id', 'audio_inference'], sort=False).size().unstack(fill_value=0)
         audio_props = audio_counts.div(audio_counts.sum(axis=1), axis=0)
         audio_props.columns = [f'audio_prop_{c}' for c in audio_props.columns]
         # 多樣性指標
@@ -642,8 +656,8 @@ class FeatureEngineer:
         audio_unique = audio_counts.astype(bool).sum(axis=1).rename('audio_unique_count')
         # 對話段落數
         conv_count = audio_df[audio_df['audio_inference'].isin(['conversation', 'speech'])].groupby('user_id').size().rename('conversation_segment_count')
-        # 最常見音訊狀態
-        most_common = audio_df.groupby('user_id')['audio_inference'].agg(lambda x: x.value_counts().idxmax()).rename('most_common_audio_state')
+        # 最常見音訊狀態（效能優化）
+        most_common = audio_counts.idxmax(axis=1).rename('most_common_audio_state')
         # one-hot encoding（僅前10名+other）
         onehot = pd.get_dummies(audio_df.set_index('user_id')['audio_inference']).groupby('user_id').sum()
         onehot.columns = [f'audio_onehot_{c}' for c in onehot.columns]

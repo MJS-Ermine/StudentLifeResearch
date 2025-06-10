@@ -66,7 +66,12 @@ def load_features_and_target():
     if data.empty:
         logger.warning("No data after merging features and GPA.")
         return pd.DataFrame(), pd.Series(dtype=float)
-    return data.drop(columns=['user_id']), data[gpa_col]
+    
+    # 移除目標變數，避免目標洩漏
+    target_series = data[gpa_col]
+    features_clean = data.drop(columns=['user_id', gpa_col])
+    
+    return features_clean, target_series
 
 # 2. 描述性統計與分布圖
 def plot_feature_distributions(features: pd.DataFrame):
@@ -86,8 +91,16 @@ def plot_correlation_heatmap(features: pd.DataFrame, target: pd.Series):
     if features is None or features.empty or target is None or target.empty:
         logger.warning("No features/target to plot correlation heatmap.")
         return
-    corr = features.copy()
-    corr['target'] = target
+    # 將 'missing'、'unknown'、'other' 等字串轉為 NaN
+    features_clean = features.replace(['missing', 'unknown', 'other'], np.nan)
+    # 只保留數值型欄位
+    num_features = features_clean.select_dtypes(include=[np.number])
+    # 若 target 也是數值型，合併進來
+    if target is not None and np.issubdtype(target.dtype, np.number):
+        corr = num_features.copy()
+        corr['target'] = target
+    else:
+        corr = num_features
     corr_matrix = corr.corr()
     plt.figure(figsize=(12, 10))
     sns.heatmap(corr_matrix, annot=True, fmt='.2f', cmap='coolwarm')
@@ -101,7 +114,29 @@ def train_and_evaluate_models(features: pd.DataFrame, target: pd.Series):
     if features is None or features.empty or target is None or target.empty:
         logger.warning("No features/target to train models.")
         return {}, {}
-    X_train, X_test, y_train, y_test = train_test_split(features, target, test_size=0.2, random_state=42)
+    
+    # 清理字串值，確保所有特徵都是數值型
+    features_clean = features.copy()
+    
+    # 將字串值轉換為 NaN，然後填充為 0
+    for col in features_clean.columns:
+        if features_clean[col].dtype == 'object':
+            # 嘗試轉換為數值型
+            features_clean[col] = pd.to_numeric(features_clean[col], errors='coerce')
+        # 將所有 NaN 填充為 0
+        features_clean[col] = features_clean[col].fillna(0)
+    
+    # 確保所有欄位都是數值型
+    features_clean = features_clean.select_dtypes(include=[np.number])
+    
+    # 確保所有特徵名稱都是字符串類型
+    features_clean.columns = features_clean.columns.astype(str)
+    
+    if features_clean.empty:
+        logger.warning("No numeric features available for training.")
+        return {}, {}
+    
+    X_train, X_test, y_train, y_test = train_test_split(features_clean, target, test_size=0.2, random_state=42)
     models = {
         'LinearRegression': LinearRegression(),
         'Ridge': Ridge(alpha=1.0, random_state=42),
@@ -113,14 +148,14 @@ def train_and_evaluate_models(features: pd.DataFrame, target: pd.Series):
         model.fit(X_train, y_train)
         y_pred = model.predict(X_test)
         results[name] = {
-            'R2': r2_score(y_test, y_pred),
-            'RMSE': mean_squared_error(y_test, y_pred) ** 0.5,
-            'MAE': mean_absolute_error(y_test, y_pred)
+            'r2': r2_score(y_test, y_pred),
+            'rmse': mean_squared_error(y_test, y_pred) ** 0.5,
+            'mae': mean_absolute_error(y_test, y_pred)
         }
         if hasattr(model, 'coef_'):
-            feature_importances[name] = pd.Series(model.coef_, index=features.columns)
+            feature_importances[name] = pd.Series(model.coef_, index=features_clean.columns)
         elif hasattr(model, 'feature_importances_'):
-            feature_importances[name] = pd.Series(model.feature_importances_, index=features.columns)
+            feature_importances[name] = pd.Series(model.feature_importances_, index=features_clean.columns)
     return results, feature_importances
 
 # 5. 特徵重要性條形圖
@@ -150,7 +185,7 @@ def generate_report(results: dict, feature_importances: dict):
         f.write('| Model | R2 | RMSE | MAE |\n')
         f.write('|-------|----|------|-----|\n')
         for model, res in results.items():
-            f.write(f'| {model} | {res["R2"]:.3f} | {res["RMSE"]:.3f} | {res["MAE"]:.3f} |\n')
+            f.write(f'| {model} | {res["r2"]:.3f} | {res["rmse"]:.3f} | {res["mae"]:.3f} |\n')
         f.write('\n![](figures/correlation_heatmap.png)\n')
         for model in feature_importances:
             f.write(f'\n### {model} Feature Importance\n')

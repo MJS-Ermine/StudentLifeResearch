@@ -141,3 +141,4 @@ __pycache__/
 .idea/
 .DS_Store
 Thumbs.db
+cursor_.md
